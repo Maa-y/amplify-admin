@@ -1,8 +1,14 @@
-import { Admin, Resource, ListGuesser, EditGuesser, ShowGuesser } from 'react-admin';
+import { Admin, Resource, ListGuesser, EditGuesser, ShowGuesser, CustomRoutes } from 'react-admin';
 import { dataProvider } from './dataProvider';
+import { ApiTest } from './ApiTest';
+import { Route } from 'react-router';
+import { Layout } from './Layout';
 
 export const App = () => (
-  <Admin dataProvider={dataProvider}>
-     <Resource name="users" list={ListGuesser} />
+  <Admin dataProvider={dataProvider} layout={Layout}>
+    <CustomRoutes>
+      <Route path="/api-test" element={<ApiTest />} />
+    </CustomRoutes>
+    <Resource name="users" list={ListGuesser} />
   </Admin>
 );
