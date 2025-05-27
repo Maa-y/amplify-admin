@@ -1,4 +1,4 @@
-import { Admin, Resource, ListGuesser, EditGuesser, ShowGuesser, CustomRoutes } from 'react-admin';
+import { Admin, Resource, ListGuesser, CustomRoutes } from 'react-admin';
 import { dataProvider } from './dataProvider';
 import { ApiTest } from './ApiTest';
 import { Route } from 'react-router';

@@ -2,6 +2,7 @@ import { defineBackend } from '@aws-amplify/backend';
 import { Stack } from 'aws-cdk-lib';
 import {
   AuthorizationType,
+  CognitoUserPoolsAuthorizer,
   Cors,
   LambdaIntegration,
   RestApi,
@@ -10,6 +11,7 @@ import { aws_ec2 as ec2 } from 'aws-cdk-lib';
 import { Effect, Policy, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { aws_lambda as lambda } from 'aws-cdk-lib';
 import { apiFunction } from './functions/apiFunction/resource';
+import { auth } from './auth/resource';
 
 // Helper functions to get environment variables with fallbacks
 const getEnvVar = (name: string, fallback: string): string => {
@@ -46,6 +48,7 @@ const defaults = {
 // Define the backend with our resources
 const backend = defineBackend({
   apiFunction,
+  auth,
 });
 
 // Configure VPC for the Lambda function
@@ -154,6 +157,18 @@ const helloPath = myRestApi.root.addResource('hello', {
 // Add GET method to the resource path
 helloPath.addMethod('GET', lambdaIntegration);
 
+// Create a new Cognito User Pools authorizer
+const cognitoAuth = new CognitoUserPoolsAuthorizer(apiStack, "CognitoAuth", {
+  cognitoUserPools: [backend.auth.resources.userPool],
+});
+
+// Create a new resource path with Cognito authorization
+const securedPath = myRestApi.root.addResource('secured');
+securedPath.addMethod('GET', lambdaIntegration, {
+  authorizationType: AuthorizationType.COGNITO,
+  authorizer: cognitoAuth,
+});
+
 // Create a new IAM policy to allow Invoke access to the API
 const apiRestPolicy = new Policy(apiStack, 'RestApiPolicy', {
   statements: [
@@ -161,10 +176,19 @@ const apiRestPolicy = new Policy(apiStack, 'RestApiPolicy', {
       actions: ['execute-api:Invoke'],
       resources: [
         `${myRestApi.arnForExecuteApi('*', '/hello', 'dev')}`,
+        `${myRestApi.arnForExecuteApi('*', '/secured', 'dev')}`,
       ],
     }),
   ],
 });
+
+// Attach the policy to the authenticated and unauthenticated IAM roles
+backend.auth.resources.authenticatedUserIamRole.attachInlinePolicy(
+  apiRestPolicy
+);
+backend.auth.resources.unauthenticatedUserIamRole.attachInlinePolicy(
+  apiRestPolicy
+);
 
 // No need to attach policies to IAM roles since we're using a public endpoint
 
