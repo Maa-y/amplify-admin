@@ -9,13 +9,13 @@ import {
   Stack, 
   Divider
 } from '@mui/material';
-import amplifyOutputs from '../amplify_outputs.json';
 import { fetchAuthSession } from 'aws-amplify/auth';
 import { 
   Authenticator,
   useAuthenticator
 } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
+import { get, ApiError } from 'aws-amplify/api';
 
 // Create a wrapper component that uses the Authenticator
 const ApiTestContent = () => {
@@ -27,34 +27,44 @@ const ApiTestContent = () => {
   // Use the useAuthenticator hook to access auth state and methods
   const { user, signOut } = useAuthenticator((context) => [context.user]);
   
-  // Get the API endpoints from amplify_outputs.json
-  const publicApiUrl = amplifyOutputs.custom.API.myRestApi.endpoint + 'hello';
-  const securedApiUrl = amplifyOutputs.custom.API.myRestApi.endpoint + 'secured';
-  console.log('Public API endpoint:', publicApiUrl);
-  console.log('Secured API endpoint:', securedApiUrl);
+  // API name from amplify_outputs.json
+  const apiName = 'myRestApi';
+  console.log('API name:', apiName);
 
   const callPublicApi = async () => {
     setPublicApiLoading(true);
     setError(null);
     
     try {
-      const result = await fetch(publicApiUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      // Using Amplify's API client instead of fetch
+      const restOperation = get({
+        apiName: apiName,
+        path: 'hello',
+        options: {
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        }
       });
       
-      if (!result.ok) {
-        throw new Error(`API request failed with status ${result.status}`);
-      }
-      
-      const data = await result.json();
+      const response = await restOperation.response;
+      const data = await response.body.json();
       setResponse(JSON.stringify(data, null, 2));
     } catch (err) {
       console.error('Error calling API:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error occurred');
-      console.log('API URL:', publicApiUrl);
+      
+      // Enhanced error handling for Amplify API errors
+      if (err instanceof ApiError) {
+        if (err.response) {
+          const { statusCode, body } = err.response;
+          console.error(`Received ${statusCode} error response with payload: ${body}`);
+          setError(`API Error (${statusCode}): ${body}`);
+        } else {
+          setError('API request failed');
+        }
+      } else {
+        setError(err instanceof Error ? err.message : 'Unknown error occurred');
+      }
     } finally {
       setPublicApiLoading(false);
     }
@@ -68,29 +78,39 @@ const ApiTestContent = () => {
       // Get the current session to get the ID token
       const session = await fetchAuthSession();
       const idToken = session.tokens?.idToken?.toString();
-      
       if (!idToken) {
         throw new Error('No authentication token available');
       }
       
-      const result = await fetch(securedApiUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': idToken
-        },
+      const restOperation = get({
+        apiName: apiName,
+        path: 'secured',
+        options: {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': idToken
+          }
+        }
       });
       
-      if (!result.ok) {
-        throw new Error(`API request failed with status ${result.status}`);
-      }
-      
-      const data = await result.json();
+      const response = await restOperation.response;
+      const data = await response.body.json();
       setResponse(JSON.stringify(data, null, 2));
     } catch (err) {
       console.error('Error calling secured API:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error occurred');
-      console.log('Secured API URL:', securedApiUrl);
+      
+      // Enhanced error handling for Amplify API errors
+      if (err instanceof ApiError) {
+        if (err.response) {
+          const { statusCode, body } = err.response;
+          console.error(`Received ${statusCode} error response with payload: ${body}`);
+          setError(`API Error (${statusCode}): ${body}`);
+        } else {
+          setError('API request failed - authentication may be required');
+        }
+      } else {
+        setError(err instanceof Error ? err.message : 'Unknown error occurred');
+      }
     } finally {
       setSecuredApiLoading(false);
     }
@@ -104,7 +124,7 @@ const ApiTestContent = () => {
         </Typography>
         
         <Typography variant="body2" color="text.secondary" paragraph>
-          This demo shows how to call both public and secured API endpoints. 
+          This demo shows how to call both public and secured API endpoints using Amplify API client. 
           The secured endpoint is protected by a Cognito authorizer.
         </Typography>
         

@@ -8,20 +8,21 @@ import outputs from '../amplify_outputs.json';
 // Configure Amplify
 try {
   const amplifyConfig = parseAmplifyConfig(outputs);
+
   Amplify.configure(
     {
       ...amplifyConfig,
       API: {
         ...amplifyConfig.API,
-        REST: outputs.custom?.API || {},
+        REST: outputs.custom.API, // Direct reference without optional chaining
       },
     },
     {
       API: {
         REST: {
           retryStrategy: {
-            strategy: 'no-retry',
-          },
+            strategy: 'no-retry', // Consistent with Amplify Gen2 documentation
+          }
         }
       }
     }

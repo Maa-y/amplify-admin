@@ -64,16 +64,7 @@ const subnetIds = parseArrayFromEnv('SUBNET_IDS', defaults.subnets.private);
 const securityGroupId = getEnvVar('SECURITY_GROUP_ID', defaults.securityGroups.lambda);
 const allowAllOutbound = getBooleanEnvVar('SECURITY_GROUP_ALLOW_OUTBOUND', defaults.securityGroups.allowAllOutbound);
 
-// Log the values to confirm they're loaded correctly
-console.log('VPC Configuration:');
-console.log('VPC ID:', vpcId);
-console.log('Availability Zones:', availabilityZones);
-console.log('Subnet IDs:', subnetIds);
-console.log('Security Group ID:', securityGroupId);
-console.log('Allow All Outbound:', allowAllOutbound);
-
-// Import existing VPC by ID using fromVpcAttributes instead of fromLookup
-// This avoids the need for account/region lookup during sandbox testing
+// Import existing VPC by ID
 const vpc = ec2.Vpc.fromVpcAttributes(apiFunctionStack, 'ExistingVPC', {
   vpcId: vpcId,
   availabilityZones: availabilityZones,
@@ -81,15 +72,12 @@ const vpc = ec2.Vpc.fromVpcAttributes(apiFunctionStack, 'ExistingVPC', {
 });
 
 // Import existing subnets
-const subnet1 = ec2.Subnet.fromSubnetId(
-  apiFunctionStack, 
-  'ExistingSubnet1', 
-  subnetIds[0]
-);
-const subnet2 = ec2.Subnet.fromSubnetId(
-  apiFunctionStack, 
-  'ExistingSubnet2', 
-  subnetIds[1]
+const subnets = subnetIds.map((subnetId, index) => 
+  ec2.Subnet.fromSubnetId(
+    apiFunctionStack, 
+    `ExistingSubnet${index + 1}`, 
+    subnetId
+  )
 );
 
 // Import existing security group
@@ -118,17 +106,16 @@ lambdaFunction.addToRolePolicy(
 );
 
 // Configure the Lambda function to use the existing VPC
-// We need to cast the Lambda function to the correct type to access VPC properties
 const cfnFunction = lambdaFunction.node.defaultChild as lambda.CfnFunction;
 cfnFunction.addPropertyOverride('VpcConfig', {
   SecurityGroupIds: [securityGroup.securityGroupId],
-  SubnetIds: [subnet1.subnetId, subnet2.subnetId],
+  SubnetIds: subnets.map(subnet => subnet.subnetId),
 });
 
 // Create a new API stack
 const apiStack = backend.createStack('api-stack');
 
-// Create a new REST API
+// Create a new REST API with proper CORS configuration
 const myRestApi = new RestApi(apiStack, 'RestApi', {
   restApiName: 'myRestApi',
   deploy: true,
@@ -142,34 +129,28 @@ const myRestApi = new RestApi(apiStack, 'RestApi', {
   },
 });
 
-// Create a new Lambda integration
-const lambdaIntegration = new LambdaIntegration(
-  backend.apiFunction.resources.lambda
-);
+// Create a Lambda integration for our function
+const lambdaIntegration = new LambdaIntegration(lambdaFunction);
 
-// Create a new resource path with IAM authorization
-const helloPath = myRestApi.root.addResource('hello', {
-  defaultMethodOptions: {
-    authorizationType: AuthorizationType.NONE, // Public endpoint, no auth required
-  },
+// Create a public endpoint (no auth required)
+const helloPath = myRestApi.root.addResource('hello');
+helloPath.addMethod('GET', lambdaIntegration, {
+  authorizationType: AuthorizationType.NONE,
 });
 
-// Add GET method to the resource path
-helloPath.addMethod('GET', lambdaIntegration);
-
-// Create a new Cognito User Pools authorizer
-const cognitoAuth = new CognitoUserPoolsAuthorizer(apiStack, "CognitoAuth", {
+// Create a Cognito User Pools authorizer
+const cognitoAuth = new CognitoUserPoolsAuthorizer(apiStack, 'CognitoAuth', {
   cognitoUserPools: [backend.auth.resources.userPool],
 });
 
-// Create a new resource path with Cognito authorization
+// Create a secured endpoint with Cognito authorization
 const securedPath = myRestApi.root.addResource('secured');
 securedPath.addMethod('GET', lambdaIntegration, {
   authorizationType: AuthorizationType.COGNITO,
   authorizer: cognitoAuth,
 });
 
-// Create a new IAM policy to allow Invoke access to the API
+// Create an IAM policy to allow access to the API
 const apiRestPolicy = new Policy(apiStack, 'RestApiPolicy', {
   statements: [
     new PolicyStatement({
@@ -190,8 +171,6 @@ backend.auth.resources.unauthenticatedUserIamRole.attachInlinePolicy(
   apiRestPolicy
 );
 
-// No need to attach policies to IAM roles since we're using a public endpoint
-
 // Add outputs to the configuration file
 backend.addOutput({
   custom: {
@@ -204,3 +183,5 @@ backend.addOutput({
     },
   },
 });
+
+export default backend;
